@@ -74,7 +74,7 @@ We would like to estimate a model that included all of these exposures simultane
 round(cor(x),2)
 ```
 
-Some are indeed highly correlated (note a number of $\rho$s >0.7) We can use a Bayesian Hierarchical model to possibly reign in some of this instability. We believe that several of these chemicals may be related through possible metabolic pathways, and we can use this to group chemicals that might have similar effects. The first 4 exposures (x1-x4) operate in pathway 1 (but not 2), the second 4 (x5-x8) operate in pathway 2 (but not 1), and the last 2 (x9-x10) operate in both. We can encode a predictor matrix `Z` to indicate this:
+Some are indeed highly correlated (note a number of $\rho$s >0.7) We can use a Bayesian Hierarchical model to possibly reign in some of this instability. We believe that the effects of these chemicals may be related through similar metabolic pathways, and we can use this to group chemicals that might have similar effects. The first 4 exposures (x1-x4) operate in pathway 1 (but not 2), the second 4 (x5-x8) operate in pathway 2 (but not 1), and the last 2 (x9-x10) operate in both. We can encode a predictor matrix `Z` to indicate this:
 
 ```{r}
 # 1st 4 exposures in class 1, 2nd 4 in class 2, last 2 in both
@@ -95,7 +95,7 @@ The expression of the hierarchical model follows from equation (\ref{stage1}), b
 \end{equation}
 where $\pi = (\pi_1, \pi_2)$ is the vector of pathway effects, and the $\delta = (\delta_1, \delta_2, \ldots, \delta_{10})$ are the random (residual) effects of each chemical, independent of their pathway effects.
 
-In a Bayesian framework, we can specify non-informative (vague) priors for $\alpha$,$\gamma$, and $\pi$. We will specify the prior precision $\tau$ to reflect a 95\% \emph{prior} probability belief that the OR lies in a 4-fold range of its point estimate ($OR_{\mathrm{upper}}/OR_{\mathrm{lower}}$=4).
+In a Bayesian framework, we can specify non-informative (vague) priors for $\alpha$,$\gamma$, and $\pi$. We will specify the prior precision $\tau$ to reflect a 95\% \emph{prior} probability belief that the OR lies in a 4-fold range of its point estimate ($OR_{\mathrm{upper}}/OR_{\mathrm{lower}}$=4). More specifically, this corresponds to a situation where a null-centered effect of a chemical exposure lies between 0.5 and 2.0 on the relative scale (thus, between $\log(0.5)$ and $\log(2.0)$ on the scale of the coefficients). Given the assumption of normally distributed $\beta$^s^, this would imply a prior variance of about $\sigma^2 = ((\log(2) - \log(.5))/4)^2$ since the span of a 95% confidence interval is approximately 4 (more accurately: $2\times 1.96$). Thus, the prior precision is $\tau = \sigma^{-2} = ((\log(2) - \log(.5))/4)^{-2}$
 
 Fitting the 2-stage hierarchical model in a fully Bayseian framework using JAGS:
 ```{r}
@@ -198,7 +198,7 @@ where we can ignore the constant piece of the prior (and likelihood for that mat
 \end{equation*}
 where $C$ is the stuff that does not depend on the parameters we want to estimate, therefore we can ignore.
 
-You may recognize this as a penalized likelihood function,\footnote{Cole SR, Chu H, Greenland S. Maximum likelihood, profile likelihood, and penalized likelihood: a primer. \emph{American Journal of Epidemiology.} 2014 Jan 15;179(2):252-60.} but with $\mathbf{m}$ replaced by $\mathbf{z}\pi$! Many Bayesian models can be expressed as an equivalent penalized likelihood problem (and vice-versa).\footnote{See: Greenland, Sander, and Mohammad Ali Mansournia. "Penalization, bias reduction, and default priors in logistic and related categorical and survival regressions." \emph{Statistics in Medicine}. 34.23 (2015): 3133-3143.} We can then estimate $\beta$ (and $\pi$) by the method of penalized maximum likelihood. The point estimates from this will correspond to the posterior \emph{mode} (rather than median, although this difference is negligible for our purposes).
+You may recognize this as a penalized likelihood function,\footnote{Cole SR, Chu H, Greenland S. Maximum likelihood, profile likelihood, and penalized likelihood: a primer. \emph{American Journal of Epidemiology.} 2014 Jan 15;179(2):252-60.} but with $\mathbf{m}$ replaced by $\mathbf{z}\pi$! Many Bayesian models can be expressed as an equivalent penalized likelihood problem (and vice-versa).\footnote{See: Greenland S, Mansournia MA. Penalization, bias reduction, and default priors in logistic and related categorical and survival regressions. \emph{Statistics in Medicine.} 2015 Oct 15;34(23):3133-43.} We can then estimate $\beta$ (and $\pi$) by the method of penalized maximum likelihood. The point estimates from this will correspond to the posterior \emph{mode} (rather than median, although this difference is negligible for our purposes).
 
 
 ```{r}
