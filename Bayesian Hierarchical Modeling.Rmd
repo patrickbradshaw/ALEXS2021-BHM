@@ -1,0 +1,247 @@
+---
+title: "Hierarchical Modeling of Multiple Exposures"
+subtitle: "Alpine Exposome Summer School 2021"
+author: "Patrick T. Bradshaw, PhD"
+date: "June 2021"
+header-includes: 
+     \usepackage{fancyhdr}
+     \usepackage{soul}
+output:
+  pdf_document:
+    latex_engine: pdflatex
+    md_extensions: +inline_notes
+    number_sections: no
+mathfont: Palatino
+monofont: Courier
+mainfont: Palatino
+sansfont: Helvetica
+fontfamily: mathpazo
+classoption: 11pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = T, warning=FALSE, message = FALSE)
+```
+
+Consider that we have data on 10 environmental chemical exposures (contained in the matrix `x`) that we would like to investigate for their association with breast cancer risk (in the variable `y`). We also have a covariate `age` (which we will denote with $w$) that we would like to additionally adjust for.
+
+# Load packages and read data
+
+```{r}
+library(MASS)
+library(R2jags)
+library(coda)
+library(knitr)
+
+load("HLMData.Rdata")
+```
+
+We want to estimate the log-odds ratios (OR) for the exposure-breast cancer risk. The primary model of interest (our Stage 1 model) is:
+\begin{equation}\label{stage1}
+    \mathrm{logit}(\Pr[Y=1|\mathbf{x},w,\alpha,\beta,\gamma]) = \alpha + \mathbf{x}\beta + w\gamma
+\end{equation}
+where $\alpha$ is the intercept term, $\beta$ is the vector of log-ORs for the 10 chemical exposures, and $\gamma$ is the log-OR per year increase in age (which has been scaled to zero mean and unit variance). 
+
+## Single exposure model
+We start by estimating single exposure models (10 separate models, one per exposure), and accumulate the results:\footnote{We would ideally do these in a fully Bayesian setting (with JAGS) to compare to the Bayesian hierarchical model, but this is a bit more practical.}
+
+```{r}
+Nx <- 10 # We have 10 exposures
+beta.serial <- se.serial <- rep(NA, Nx) # Initialize a vector for the results
+
+# Run separate model for each exposure, 
+# and collect beta coefficient (2nd one in each model)
+for (i in 1:Nx){
+     fit.serial <- glm(y~x[,i] + age, family=binomial)
+     beta.serial[i] <- coef(fit.serial)[2]
+     se.serial[i] <- sqrt(vcov(fit.serial)[2,2])
+}
+```
+
+## Na&iuml;ve multiple exposure models
+We know that the effects of these chemicals may confound each other, so a model that incorporates all of the exposures simultaneously should improve our inference. We then instead estimate a model with all 10 exposures included at the same time:
+
+```{r}
+fit.naive <- glm(y~x + age, family=binomial)
+# only keep beta coefficients (omit intercept, age)
+beta.naive <- coef(fit.naive)[2:(Nx+1)] 
+se.naive <- sqrt(diag(vcov(fit.naive))[2:(Nx+1)])
+```
+
+## Bayesian Hierarchical Model
+We would like to estimate a model that included all of these exposures simultaneously, but we are concerned that some of these chemical exposures may be highly correlated, which can yield instability in our regression model:
+```{r}
+round(cor(x),2)
+```
+
+Some are indeed highly correlated (note a number of $\rho$s >0.7) We can use a Bayesian Hierarchical model to possibly reign in some of this instability. We believe that several of these chemicals may be related through possible metabolic pathways, and we can use this to group chemicals that might have similar effects. The first 4 exposures (x1-x4) operate in pathway 1 (but not 2), the second 4 (x5-x8) operate in pathway 2 (but not 1), and the last 2 (x9-x10) operate in both. We can encode a predictor matrix `Z` to indicate this:
+
+```{r}
+# 1st 4 exposures in class 1, 2nd 4 in class 2, last 2 in both
+Z <- cbind(c(rep(1,4),rep(0,4), rep(1,2)),
+           c(rep(0,4),rep(1,4), rep(1,2)))
+colnames(Z) <- c("Path 1","Path 2")
+rownames(Z) <- paste("x",1:Nx, sep="")
+Z
+```
+
+The expression of the hierarchical model follows from equation (\ref{stage1}), but also incorporates a model (prior) for the coefficients as a function of their pathway effect:
+
+\begin{equation}\label{stage2}
+\begin{split}
+    \beta_j & = \mathbf{z}_j\pi + \delta_j \\
+    \delta_j & \sim N(0, \tau)
+\end{split}
+\end{equation}
+where $\pi = (\pi_1, \pi_2)$ is the vector of pathway effects, and the $\delta = (\delta_1, \delta_2, \ldots, \delta_{10})$ are the random (residual) effects of each chemical, independent of their pathway effects.
+
+In a Bayesian framework, we can specify non-informative (vague) priors for $\alpha$,$\gamma$, and $\pi$. We will specify the prior precision $\tau$ to reflect a 95\% \emph{prior} probability belief that the OR lies in a 4-fold range of its point estimate ($OR_{\mathrm{upper}}/OR_{\mathrm{lower}}$=4).
+
+Fitting the 2-stage hierarchical model in a fully Bayseian framework using JAGS:
+```{r}
+# Define the function for the prior:
+hierarchical.model <- function(){
+     # First stage model:
+     for (i in 1:N) {
+          logit(p.y[i]) <- a + inprod(x[i,1:Nx], b[1:Nx]) + age[i]*g; 
+          y[i] ~ dbin(p.y[i], 1);
+     }
+
+     # Second stage model:
+     for (j in (1:Nx)) {
+          b[j] <- inprod(z[j,1:Nz], pi[1:Nz]) + delta[j]; 
+          delta[j] ~ dnorm(0, tau.b);
+          OR[j] <- exp(b[j]); # Calculate ORs for reporting
+     }
+  
+     # Priors on fixed parameters
+     # First stage model:
+     a ~ dnorm(0,0.001); # 1st stage intercept
+     g ~ dnorm(0,0.001); # 1st stage age effect
+     
+     # Second-stage model
+     for (k in 1:Nz) { pi[k] ~ dnorm(0, 0.001);}
+}
+```
+
+Obtain data and constants for JAGS:
+```{r}
+N <- length(y) # Number of observations
+Nx <- ncol(x)
+Nz <- ncol(Z)
+
+range <- log(2) - log(.5)
+tau.b <- (range/4)^(-2)
+
+# Data, parameter list and starting values
+data <- list(N=N, Nx=Nx, Nz=Nz, x=x, y=y, age=age, z=Z, tau.b=tau.b)
+parameters<-c("a", "b", "g","pi","OR") # Parameters to keep track of
+
+# Sample from posterior with JAGS:
+bhm <- jags(model.file=hierarchical.model, data=data,
+             parameters=parameters, n.thin=5,
+            jags.seed=1234, n.iter=20000)
+print(bhm, digits=3)
+
+bhm.mcmc <- as.mcmc(bhm) # convert to MCMC object for CODA processing
+summ.bhm <- summary(bhm.mcmc)
+# plot(bhm.mcmc) # Could check convergence
+
+to.keep <- paste("b[",1:Nx,"]",sep="") # names of parameters to keep from summary
+beta.hm <- summ.bhm$quantiles[to.keep,3] # posterior median for point estimate
+sd.hm <- summ.bhm$statistics[to.keep,2] # posterior standard deviation 
+```
+
+## Comparison
+We can compare the results (using log-ORs) from these models:
+```{r}
+kable(round(cbind(beta.serial, se.serial, 
+            beta.naive, se.naive,
+            beta.hm, sd.hm),2), 
+      col.names = c("beta serial", "SE serial",
+                    "beta naive","se naive",
+                    "beta BHM","sd BHM"))
+```
+
+Notice that the coefficients from the serial (one-exposure-at-a-time) models are small, but very precise. However, they are likely confounded by failure to account for other correlated exposures. The coefficients from the na&iuml;ve multi-exposure model are much more extreme, and their standard errors are MUCH larger (confidence interval width will be correspondingly imprecise). The Bayesian Hierarchical Modeling (BHM) results are generally more attenuated than the na&iuml;ve multi-exposure model, with much more reasonable standard errors. Notice that coefficients from exposures in the same pathways are shrunk closer to the average effect in that pathway.
+
+# BONUS: Penalized ML
+
+While Bayesian inference \emph{via} MCMC is  handy (and very flexible), we can fit an equivalent model using ridge (quadratic) penalized maximum likelihood, which is more computationally efficient. 
+
+We shrink the $\beta$ coefficients to their expected value from the 2nd stage model: $\mathbf{z}\pi$ with strength proportional to the precision $\tau$. To see why this is equivalent, note that the Stage 2 model for $\beta$ (equation (\ref{stage2})) is equivalent to:
+\begin{equation*}
+    \beta_j \sim N(\mathbf{z}_j\pi, \tau)
+\end{equation*}
+where $\tau$ is precision (not variance) common to all $j$. This implies the following density function for $\beta=(\beta_1, \ldots, \beta_{10})$:
+\begin{equation*}
+    p(\beta) = \prod_{j=1}^{10}\sqrt{\frac{\tau}{2\pi}}\exp\left(-\frac{\tau}{2}
+  (\beta_j - \mathbf{z}_j\pi)^2 \right)
+\end{equation*}
+Ignoring a distribution on $\pi$ for now, and remembering that we set $\tau$ to a particular value the posterior (likelihood $\times$ prior) is then:
+\begin{equation*}
+\begin{split}
+    p(\beta,\alpha,\gamma|\mathbf{y},\mathbf{x},w,\mathbf{z}) & = L(\beta,\alpha,\gamma|\mathbf{y},\mathbf{x},w) \times 
+    \prod_{j=1}^{10}\sqrt{\frac{\tau}{2\pi}}\exp\left(-\frac{\tau}{2}
+  (\beta_j - \mathbf{z}_j\pi)^2 \right)\\
+  & \propto L(\beta,\alpha,\gamma|\mathbf{y},\mathbf{x},w) \times 
+    \prod_{j=1}^{10}\exp\left(-\frac{\tau}{2}
+  (\beta_j - \mathbf{z}_j\pi)^2 \right)
+\end{split}
+\end{equation*}
+where we can ignore the constant piece of the prior (and likelihood for that matter). Taking natural log of both sides, yields the log-posterior:
+\begin{equation*}
+\begin{split}
+    \log\left[p(\beta,\alpha,\gamma|\mathbf{y},\mathbf{x},w,\mathbf{z})\right] & = \mathcal{L}(\beta,\alpha,\gamma|\mathbf{y},\mathbf{x},\mathbf{age}) \overbrace{-\frac{\tau}{2} \sum_{j=1}^{10}
+  (\beta_j - \mathbf{z}_j\pi)^2}^{{\text{Penalty function}}} + C
+\end{split}
+\end{equation*}
+where $C$ is the stuff that does not depend on the parameters we want to estimate, therefore we can ignore.
+
+You may recognize this as a penalized likelihood function from our penalized MLE lecture in PB HLTH 252, but with $\mathbf{m}$ replaced by $\mathbf{z}\pi$! Many Bayesian models can be expressed as an equivalent penalized likelihood problem (and vice-versa).\footnote{See: Greenland, Sander, and Mohammad Ali Mansournia. "Penalization, bias reduction, and default priors in logistic and related categorical and survival regressions." \emph{Statistics in Medicine}. 34.23 (2015): 3133-3143.} We can then estimate $\beta$ (and $\pi$) by the method of penalized maximum likelihood. The point estimates from this will correspond to the posterior \emph{mode} (rather than median, although this difference is negligible for our purposes).
+
+
+```{r}
+library(stats4)
+expit <- function(x) exp(x)/(1+exp(x))
+
+# MLE command in R requires negative of log-likelihood:
+nPLL <- function(a, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, g,
+                 pi1, pi2){
+  # concatenate betas together for vector multiplication
+  b <- c(b1, b2, b3, b4, b5, b6, b7, b8, b9, b10) 
+  
+  # concatenate pis together
+  pi <- c(pi1, pi2) 
+  
+  p.y <- expit(a + x %*% b + age*g) # Probability of event
+  nLL <- -sum(dbinom(y, 1, p.y, log=TRUE)) # Negative of log-likelihood
+  penalty <- (tau.b/2)*t(b - Z %*% pi) %*% (b - Z %*% pi); # Negative of penalty
+  return(nLL + penalty) # Return negative penalized log-likelihood
+  # return(nLL)
+}
+
+pmle <- mle(nPLL, start=list(a=0, b1=0, b2=0, b3=0, b4=0, b5=0, b6=0, b7=0, b8=0,
+                             b9=0, b10=0, g=0, pi1=0, pi2=0), nobs=NROW(y))
+
+summary(pmle)
+
+# The "paste" command creates a string vector
+# of element names to keep.
+beta.pmle <- coef(pmle)[paste("b",1:Nx,sep="")]
+se.pmle <- sqrt(diag(vcov(pmle))[paste("b",1:Nx,sep="")])
+```
+
+Comparing all results:
+```{r}
+kable(round(cbind(beta.serial, se.serial, 
+            beta.naive, se.naive,
+            beta.hm, sd.hm,
+            beta.pmle, se.pmle),2), 
+      col.names = c("beta serial", "SE serial",
+                    "beta naive","se naive",
+                    "beta BHM","sd BHM",
+                    "beta PMLE","se PMLE"))
+```
+
+The coefficient estimates and standard errors from the penalized ML procedure (PMLE) are very close to those from the Bayesian Hierarchical model (BHM). Slight differences are due to the use of MCMC in the Bayesian setting, and perhaps some slight skewness in the posterior distributions. Nevertheless, they are both essentially equivalent for problems such as this.
