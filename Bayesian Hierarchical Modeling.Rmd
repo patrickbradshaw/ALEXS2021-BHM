@@ -1,7 +1,7 @@
 ---
 title: "Hierarchical Modeling of Multiple Exposures"
 subtitle: "Alpine Exposome Summer School 2021"
-author: "Patrick T. Bradshaw, PhD"
+author: "Patrick T. Bradshaw, PhD, University of California, Berkeley"
 date: "June 2021"
 header-includes: 
      \usepackage{fancyhdr}
@@ -165,9 +165,9 @@ kable(round(cbind(beta.serial, se.serial,
 
 Notice that the coefficients from the serial (one-exposure-at-a-time) models are small, but very precise. However, they are likely confounded by failure to account for other correlated exposures. The coefficients from the na&iuml;ve multi-exposure model are much more extreme, and their standard errors are MUCH larger (confidence interval width will be correspondingly imprecise). The Bayesian Hierarchical Modeling (BHM) results are generally more attenuated than the na&iuml;ve multi-exposure model, with much more reasonable standard errors. Notice that coefficients from exposures in the same pathways are shrunk closer to the average effect in that pathway.
 
-# BONUS: Penalized ML
+# EXTRA: Penalized ML
 
-While Bayesian inference \emph{via} MCMC is  handy (and very flexible), we can fit an equivalent model using ridge (quadratic) penalized maximum likelihood, which is more computationally efficient. 
+While Bayesian inference \emph{via} MCMC is  handy (and very flexible), we can fit an equivalent model using penalized maximum likelihood with a L2 (quadratic) penalty, which is more computationally efficient. 
 
 We shrink the $\beta$ coefficients to their expected value from the 2nd stage model: $\mathbf{z}\pi$ with strength proportional to the precision $\tau$. To see why this is equivalent, note that the Stage 2 model for $\beta$ (equation (\ref{stage2})) is equivalent to:
 \begin{equation*}
@@ -198,7 +198,7 @@ where we can ignore the constant piece of the prior (and likelihood for that mat
 \end{equation*}
 where $C$ is the stuff that does not depend on the parameters we want to estimate, therefore we can ignore.
 
-You may recognize this as a penalized likelihood function from our penalized MLE lecture in PB HLTH 252, but with $\mathbf{m}$ replaced by $\mathbf{z}\pi$! Many Bayesian models can be expressed as an equivalent penalized likelihood problem (and vice-versa).\footnote{See: Greenland, Sander, and Mohammad Ali Mansournia. "Penalization, bias reduction, and default priors in logistic and related categorical and survival regressions." \emph{Statistics in Medicine}. 34.23 (2015): 3133-3143.} We can then estimate $\beta$ (and $\pi$) by the method of penalized maximum likelihood. The point estimates from this will correspond to the posterior \emph{mode} (rather than median, although this difference is negligible for our purposes).
+You may recognize this as a penalized likelihood function,\footnote{Cole SR, Chu H, Greenland S. Maximum likelihood, profile likelihood, and penalized likelihood: a primer. \emph{American Journal of Epidemiology.} 2014 Jan 15;179(2):252-60.} but with $\mathbf{m}$ replaced by $\mathbf{z}\pi$! Many Bayesian models can be expressed as an equivalent penalized likelihood problem (and vice-versa).\footnote{See: Greenland, Sander, and Mohammad Ali Mansournia. "Penalization, bias reduction, and default priors in logistic and related categorical and survival regressions." \emph{Statistics in Medicine}. 34.23 (2015): 3133-3143.} We can then estimate $\beta$ (and $\pi$) by the method of penalized maximum likelihood. The point estimates from this will correspond to the posterior \emph{mode} (rather than median, although this difference is negligible for our purposes).
 
 
 ```{r}
